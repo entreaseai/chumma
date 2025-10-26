@@ -487,11 +487,30 @@ export default function Home() {
                 ? `testing prompt ${vcsTestingProgress} of ${vcsPrompts.length}...`
                 : "maximizing vibe coder usage..."}
             </h2>
-            <p className="text-xs md:text-sm text-foreground/60 animate-pulse-subtle">
+            <p className="text-xs md:text-sm text-foreground/60 animate-pulse-subtle mb-6 md:mb-8">
               {currentProcessingTab === "vcs" && vcsTestingProgress > 0
                 ? "each prompt takes about 30-60 seconds"
                 : "it might take 5 minutes"}
             </p>
+
+            {currentProcessingTab === "vcs" && vcsTestingProgress > 0 && vcsPrompts.length > 0 && (
+              <div className="mx-auto max-w-md">
+                <div className="mb-2 flex justify-between text-xs md:text-sm text-foreground/70">
+                  <span>Progress</span>
+                  <span>
+                    {vcsTestingProgress} / {vcsPrompts.length}
+                  </span>
+                </div>
+                <div className="h-2 md:h-3 w-full rounded-full bg-foreground/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#1275d8] to-[#e19136] transition-all duration-500 ease-out"
+                    style={{
+                      width: `${(vcsTestingProgress / vcsPrompts.length) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
