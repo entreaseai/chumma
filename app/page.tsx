@@ -123,7 +123,19 @@ export default function Home() {
             }),
           })
 
-          const testData = await testResponse.json()
+          const contentType = testResponse.headers.get("content-type")
+          if (!contentType || !contentType.includes("application/json")) {
+            console.error(`[v0] Non-JSON response for prompt ${i + 1}`)
+            throw new Error("Invalid response format")
+          }
+
+          let testData
+          try {
+            testData = await testResponse.json()
+          } catch (parseError) {
+            console.error(`[v0] JSON parse error for prompt ${i + 1}:`, parseError)
+            throw new Error("Failed to parse response")
+          }
 
           if (!testData.success) {
             throw new Error(testData.error || "Failed to test prompt")
@@ -152,8 +164,10 @@ export default function Home() {
           promptResults.push({
             prompt,
             mentioned: false,
-            response: `Error: ${error instanceof Error ? error.message : "Failed to test prompt"}`,
+            response: "",
           })
+          // Update results progressively even on error
+          setVcsPromptResults([...promptResults])
         }
       }
 
@@ -483,15 +497,25 @@ export default function Home() {
         >
           <div className="max-w-2xl w-full text-center">
             <h2 className="text-xl md:text-3xl lg:text-4xl font-light text-foreground animate-pulse-subtle mb-3 md:mb-4">
-              {currentProcessingTab === "vcs" && vcsTestingProgress > 0
-                ? `testing prompt ${vcsTestingProgress} of ${vcsPrompts.length}...`
-                : "maximizing vibe coder usage..."}
+              maximizing vibe coder usage and visibility
             </h2>
             <p className="text-xs md:text-sm text-foreground/60 animate-pulse-subtle mb-6 md:mb-8">
-              {currentProcessingTab === "vcs" && vcsTestingProgress > 0
-                ? "each prompt takes about 30-60 seconds"
-                : "it might take 5 minutes"}
+              it might take 5 minutes
             </p>
+
+            {currentProcessingTab === "vcs" && vcsTestingProgress === 0 && (
+              <div className="mx-auto max-w-md">
+                <div className="h-2 md:h-3 w-full rounded-full bg-foreground/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#1275d8] via-[#e19136] to-[#1275d8] animate-shimmer"
+                    style={{
+                      backgroundSize: "200% 100%",
+                      animation: "shimmer 2s infinite linear",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
             {currentProcessingTab === "vcs" && vcsTestingProgress > 0 && vcsPrompts.length > 0 && (
               <div className="mx-auto max-w-md">
@@ -572,7 +596,18 @@ export default function Home() {
             <div className="mb-4 md:mb-6 mx-auto max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-700 delay-200">
               <div className="rounded-xl border border-foreground/20 bg-background/80 backdrop-blur-md overflow-hidden">
                 <div className="border-b border-foreground/10 bg-foreground/5 px-4 md:px-6 py-2 md:py-3">
-                  <span className="text-xs md:text-sm font-medium text-foreground/70">Detailed Test Results</span>
+                  <span className="text-xs md:text-sm font-medium text-foreground/70 uppercase tracking-wider w-8 md:w-12">
+                    #
+                  </span>
+                  <span className="text-xs md:text-sm font-medium text-foreground/70 uppercase tracking-wider">
+                    Prompt
+                  </span>
+                  <span className="text-xs md:text-sm font-medium text-foreground/70 uppercase tracking-wider w-20 md:w-32">
+                    Mentioned
+                  </span>
+                  <span className="text-xs md:text-sm font-medium text-foreground/70 uppercase tracking-wider">
+                    Result
+                  </span>
                 </div>
                 <div className="max-h-[40vh] md:max-h-[50vh] overflow-y-auto overflow-x-auto">
                   <table className="w-full min-w-[640px]">
