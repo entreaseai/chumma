@@ -439,7 +439,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mb-4 md:mb-6 mx-auto max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150 grid gap-3 md:gap-4 md:grid-cols-2">
+            <div className="mb-4 md:mb-6 mx-auto max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
               <div className="rounded-xl border border-foreground/20 bg-background/80 backdrop-blur-md p-4 md:p-6">
                 <h3 className="text-xs md:text-sm font-medium text-foreground/70 mb-2">Product Visibility</h3>
                 <p className="text-xl md:text-2xl font-semibold text-foreground">
@@ -449,16 +449,6 @@ export default function Home() {
                   {vcsResult.productMentioned
                     ? "Your product appeared in Cursor recommendations"
                     : "Your product was not mentioned in test results"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-foreground/20 bg-background/80 backdrop-blur-md p-4 md:p-6">
-                <h3 className="text-xs md:text-sm font-medium text-foreground/70 mb-2">Competitors Detected</h3>
-                <p className="text-xl md:text-2xl font-semibold text-foreground">{vcsResult.competitors.length}</p>
-                <p className="text-xs md:text-sm text-foreground/60 mt-1">
-                  {vcsResult.competitors.length > 0
-                    ? vcsResult.competitors.slice(0, 3).join(", ")
-                    : "No major competitors identified"}
                 </p>
               </div>
             </div>
@@ -516,6 +506,29 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {vcsResult.competitors.length > 0 && (
+              <div className="mb-4 md:mb-6 mx-auto max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-700 delay-250">
+                <div className="rounded-xl border border-foreground/20 bg-background/80 backdrop-blur-md p-4 md:p-6">
+                  <h3 className="text-xs md:text-sm font-medium text-foreground/70 mb-3 md:mb-4">
+                    Competitors Detected ({vcsResult.competitors.length})
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {vcsResult.competitors.map((competitor, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center px-3 py-1.5 rounded-full text-xs md:text-sm font-medium bg-foreground/10 text-foreground/80 border border-foreground/20"
+                      >
+                        {competitor}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-foreground/50 mt-3">
+                    These tools were mentioned in Cursor agent responses when testing your prompts
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row animate-in fade-in slide-in-from-bottom-4 justify-center gap-3 md:gap-4 duration-700 delay-300 mb-8">
               <MagneticButton size="default" variant="secondary" onClick={handleDownloadReport}>

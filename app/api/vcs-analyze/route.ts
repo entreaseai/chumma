@@ -102,6 +102,41 @@ Format your response as a concise summary that can be used to generate realistic
     const toolAnalysisData = await toolAnalysisResponse.json()
     const toolContext = toolAnalysisData.choices[0].message.content
 
+    const productNameResponse = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "sonar-pro",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert at identifying product and tool names from documentation.",
+          },
+          {
+            role: "user",
+            content: `Based on this documentation link: ${link}
+
+And this analysis:
+${toolContext}
+
+What is the exact product/tool name? Respond with ONLY the product name, nothing else. For example: "Supabase" or "Next.js" or "Stripe"`,
+          },
+        ],
+      }),
+    })
+
+    if (!productNameResponse.ok) {
+      throw new Error(`Perplexity API failed with status ${productNameResponse.status}`)
+    }
+
+    const productNameData = await productNameResponse.json()
+    const productName = productNameData.choices[0].message.content.trim().replace(/[*"']/g, "")
+
+    console.log("[v0] Extracted product name:", productName)
+
     const promptGenerationResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -161,9 +196,6 @@ Format: Return ONLY a JSON array of 5 strings, nothing else. Example: ["prompt 1
       throw new Error("Failed to parse prompts from OpenAI response")
     }
 
-    const productNameMatch = toolContext.match(/product name[:\s]+([^\n.]+)/i)
-    const productName = productNameMatch ? productNameMatch[1].trim() : ""
-
     const promptResults: PromptTestResult[] = []
     const competitors = new Set<string>()
     let mentionCount = 0
@@ -175,7 +207,47 @@ Format: Return ONLY a JSON array of 5 strings, nothing else. Example: ["prompt 1
         const promptWithInstruction = `${prompt}\n\nDon't ask for any other context and get an answer just do the best you can but come up with an answer`
         const answer = await runCursorAgent(promptWithInstruction)
 
-        const mentioned = productName ? answer.toLowerCase().includes(productName.toLowerCase()) : false
+        let mentioned = false
+        if (productName) {
+          const mentionCheckResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are an expert at analyzing text to determine if a specific product or tool is mentioned or recommended. Be thorough and look for direct mentions, variations of the name, or clear references to the product.",
+                },
+                {
+                  role: "user",
+                  content: `Product name to look for: "${productName}"
+
+Answer to analyze:
+${answer}
+
+Is "${productName}" mentioned, recommended, or clearly referenced in this answer? Consider variations of the name, acronyms, and contextual references.
+
+Respond with ONLY "yes" or "no", nothing else.`,
+                },
+              ],
+            }),
+          })
+
+          if (mentionCheckResponse.ok) {
+            const mentionCheckData = await mentionCheckResponse.json()
+            const mentionResult = mentionCheckData.choices[0].message.content.trim().toLowerCase()
+            mentioned = mentionResult === "yes"
+          }
+
+          console.log(
+            `[v0] Prompt ${i + 1} - Product: "${productName}" - Mentioned: ${mentioned} - Answer preview: ${answer.substring(0, 100)}...`,
+          )
+        }
 
         if (mentioned) {
           mentionCount++
@@ -184,8 +256,16 @@ Format: Return ONLY a JSON array of 5 strings, nothing else. Example: ["prompt 1
         const competitorMatches = answer.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g)
         if (competitorMatches) {
           competitorMatches.forEach((comp) => {
-            if (comp.length > 2 && comp !== productName) {
-              competitors.add(comp)
+            const cleanComp = comp.trim()
+            // Filter out common words and ensure it's not the product name
+            if (
+              cleanComp.length > 2 &&
+              !cleanComp.toLowerCase().includes(productName.toLowerCase()) &&
+              !["The", "This", "That", "These", "Those", "Here", "There", "When", "Where", "What", "Which"].includes(
+                cleanComp,
+              )
+            ) {
+              competitors.add(cleanComp)
             }
           })
         }
@@ -210,9 +290,16 @@ Format: Return ONLY a JSON array of 5 strings, nothing else. Example: ["prompt 1
       totalTests: prompts.length,
       prompts,
       promptResults,
-      competitors: Array.from(competitors).slice(0, 10),
+      competitors: Array.from(competitors).slice(0, 15),
       productMentioned: mentionCount > 0,
     }
+
+    console.log("[v0] Final VCS Result:", {
+      score: result.score,
+      totalTests: result.totalTests,
+      productMentioned: result.productMentioned,
+      competitorsCount: result.competitors.length,
+    })
 
     return NextResponse.json({ result })
   } catch (error) {
