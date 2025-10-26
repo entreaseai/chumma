@@ -15,8 +15,8 @@ interface PromptTestResult {
 
 interface VCSPromptResult {
   prompts: string[]
-  toolContext: string
   productName: string
+  toolContext: string
 }
 
 interface VCSTestResult {
@@ -49,6 +49,10 @@ export default function Home() {
   const [processedUrl, setProcessedUrl] = useState("")
   const [apiResult, setApiResult] = useState<string>("")
   const [vcsResult, setVcsResult] = useState<VCSTestResult | null>(null)
+  const [vcsPrompts, setVcsPrompts] = useState<string[]>([])
+  const [vcsProductName, setVcsProductName] = useState<string>("")
+  const [vcsTestingProgress, setVcsTestingProgress] = useState<number>(0)
+  const [vcsPromptResults, setVcsPromptResults] = useState<PromptTestResult[]>([])
   const currentProcessingTab = useRef<"oneshot" | "vcs" | "cursor">("vcs").current
   const shaderContainerRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
@@ -69,9 +73,15 @@ export default function Home() {
     setIsProcessing(true)
     setShowSuccess(false)
     setVcsResult(null)
+    setVcsPrompts([])
+    setVcsProductName("")
+    setVcsTestingProgress(0)
+    setVcsPromptResults([])
 
     try {
-      const response = await fetch("/api/vcs-analyze", {
+      // Phase 1: Generate prompts
+      console.log("[v0] Phase 1: Generating prompts...")
+      const analyzeResponse = await fetch("/api/vcs-analyze", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -79,15 +89,92 @@ export default function Home() {
         body: JSON.stringify({ link: url }),
       })
 
-      const data = await response.json()
+      const analyzeData = await analyzeResponse.json()
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to analyze")
+      if (!analyzeResponse.ok) {
+        throw new Error(analyzeData.error || "Failed to generate prompts")
       }
 
-      setVcsResult(data.result)
+      const { prompts, productName } = analyzeData.result as VCSPromptResult
+      setVcsPrompts(prompts)
+      setVcsProductName(productName)
+
+      console.log("[v0] Phase 2: Testing prompts sequentially...")
+
+      // Phase 2: Test each prompt sequentially
+      const promptResults: PromptTestResult[] = []
+      const allCompetitors = new Set<string>()
+      let mentionCount = 0
+
+      for (let i = 0; i < prompts.length; i++) {
+        const prompt = prompts[i]
+        setVcsTestingProgress(i + 1)
+
+        try {
+          const testResponse = await fetch("/api/vcs-test-single", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              prompt,
+              productName,
+              index: i,
+            }),
+          })
+
+          const testData = await testResponse.json()
+
+          if (!testData.success) {
+            throw new Error(testData.error || "Failed to test prompt")
+          }
+
+          const { result } = testData
+          promptResults.push({
+            prompt: result.prompt,
+            mentioned: result.mentioned,
+            response: result.response,
+          })
+
+          if (result.mentioned) {
+            mentionCount++
+          }
+
+          // Collect competitors
+          if (result.competitors) {
+            result.competitors.forEach((comp: string) => allCompetitors.add(comp))
+          }
+
+          // Update results progressively
+          setVcsPromptResults([...promptResults])
+        } catch (error) {
+          console.error(`[v0] Error testing prompt ${i + 1}:`, error)
+          promptResults.push({
+            prompt,
+            mentioned: false,
+            response: `Error: ${error instanceof Error ? error.message : "Failed to test prompt"}`,
+          })
+        }
+      }
+
+      // Final results
+      const finalResult: VCSTestResult = {
+        score: mentionCount,
+        totalTests: prompts.length,
+        prompts,
+        promptResults,
+        competitors: Array.from(allCompetitors).slice(0, 15),
+        productMentioned: mentionCount > 0,
+      }
+
+      setVcsResult(finalResult)
       setIsProcessing(false)
       setShowSuccess(true)
+
+      console.log("[v0] VCS Testing Complete:", {
+        score: finalResult.score,
+        totalTests: finalResult.totalTests,
+      })
     } catch (error) {
       console.error("VCS API Error:", error)
       toast({
@@ -246,6 +333,10 @@ export default function Home() {
     setProcessedUrl("")
     setApiResult("")
     setVcsResult(null)
+    setVcsPrompts([])
+    setVcsProductName("")
+    setVcsTestingProgress(0)
+    setVcsPromptResults([])
     setCursorResult("")
   }
 
@@ -392,9 +483,15 @@ export default function Home() {
         >
           <div className="max-w-2xl w-full text-center">
             <h2 className="text-xl md:text-3xl lg:text-4xl font-light text-foreground animate-pulse-subtle mb-3 md:mb-4">
-              maximizing vibe coder usage...
+              {currentProcessingTab === "vcs" && vcsTestingProgress > 0
+                ? `testing prompt ${vcsTestingProgress} of ${vcsPrompts.length}...`
+                : "maximizing vibe coder usage..."}
             </h2>
-            <p className="text-xs md:text-sm text-foreground/60 animate-pulse-subtle">it might take 5 minutes</p>
+            <p className="text-xs md:text-sm text-foreground/60 animate-pulse-subtle">
+              {currentProcessingTab === "vcs" && vcsTestingProgress > 0
+                ? "each prompt takes about 30-60 seconds"
+                : "it might take 5 minutes"}
+            </p>
           </div>
         </div>
       )}

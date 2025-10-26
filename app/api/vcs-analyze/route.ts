@@ -1,22 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { runCursorAgent } from "@/lib/cursor-agent"
 
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
-interface PromptTestResult {
-  prompt: string
-  mentioned: boolean
-  response: string
-}
-
-interface VCSResult {
-  score: number
-  totalTests: number
+interface VCSPromptResult {
   prompts: string[]
-  promptResults: PromptTestResult[]
-  competitors: string[]
-  productMentioned: boolean
+  productName: string
+  toolContext: string
 }
 
 function extractJSON(text: string): string {
@@ -196,110 +186,13 @@ Format: Return ONLY a JSON array of 5 strings, nothing else. Example: ["prompt 1
       throw new Error("Failed to parse prompts from OpenAI response")
     }
 
-    const promptResults: PromptTestResult[] = []
-    const competitors = new Set<string>()
-    let mentionCount = 0
-
-    for (let i = 0; i < prompts.length; i++) {
-      const prompt = prompts[i]
-
-      try {
-        const promptWithInstruction = `${prompt}\n\nDon't ask for any other context and get an answer just do the best you can but come up with an answer`
-        const answer = await runCursorAgent(promptWithInstruction)
-
-        let mentioned = false
-        if (productName) {
-          const mentionCheckResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [
-                {
-                  role: "system",
-                  content:
-                    "You are an expert at analyzing text to determine if a specific product or tool is mentioned or recommended. Be thorough and look for direct mentions, variations of the name, or clear references to the product.",
-                },
-                {
-                  role: "user",
-                  content: `Product name to look for: "${productName}"
-
-Answer to analyze:
-${answer}
-
-Is "${productName}" mentioned, recommended, or clearly referenced in this answer? Consider variations of the name, acronyms, and contextual references.
-
-Respond with ONLY "yes" or "no", nothing else.`,
-                },
-              ],
-            }),
-          })
-
-          if (mentionCheckResponse.ok) {
-            const mentionCheckData = await mentionCheckResponse.json()
-            const mentionResult = mentionCheckData.choices[0].message.content.trim().toLowerCase()
-            mentioned = mentionResult === "yes"
-          }
-
-          console.log(
-            `[v0] Prompt ${i + 1} - Product: "${productName}" - Mentioned: ${mentioned} - Answer preview: ${answer.substring(0, 100)}...`,
-          )
-        }
-
-        if (mentioned) {
-          mentionCount++
-        }
-
-        const competitorMatches = answer.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g)
-        if (competitorMatches) {
-          competitorMatches.forEach((comp) => {
-            const cleanComp = comp.trim()
-            // Filter out common words and ensure it's not the product name
-            if (
-              cleanComp.length > 2 &&
-              !cleanComp.toLowerCase().includes(productName.toLowerCase()) &&
-              !["The", "This", "That", "These", "Those", "Here", "There", "When", "Where", "What", "Which"].includes(
-                cleanComp,
-              )
-            ) {
-              competitors.add(cleanComp)
-            }
-          })
-        }
-
-        promptResults.push({
-          prompt,
-          mentioned,
-          response: answer,
-        })
-      } catch (error) {
-        console.error(`[v0] Error testing prompt ${i + 1}:`, error)
-        promptResults.push({
-          prompt,
-          mentioned: false,
-          response: `Error: ${error instanceof Error ? error.message : "Failed to test prompt"}`,
-        })
-      }
-    }
-
-    const result: VCSResult = {
-      score: mentionCount,
-      totalTests: prompts.length,
+    const result: VCSPromptResult = {
       prompts,
-      promptResults,
-      competitors: Array.from(competitors).slice(0, 15),
-      productMentioned: mentionCount > 0,
+      productName,
+      toolContext,
     }
 
-    console.log("[v0] Final VCS Result:", {
-      score: result.score,
-      totalTests: result.totalTests,
-      productMentioned: result.productMentioned,
-      competitorsCount: result.competitors.length,
-    })
+    console.log("[v0] Generated prompts:", prompts.length)
 
     return NextResponse.json({ result })
   } catch (error) {
