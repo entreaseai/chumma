@@ -13,14 +13,25 @@ interface PromptTestResult {
   response: string
 }
 
-interface VCSResult {
+interface VCSPromptResult {
+  prompts: string[]
+  toolContext: string
+  productName: string
+}
+
+interface VCSTestResult {
   score: number
   totalTests: number
   prompts: string[]
   promptResults: PromptTestResult[]
   competitors: string[]
   productMentioned: boolean
-  details: string
+}
+
+const setCurrentProcessingTab = (tab: "oneshot" | "vcs" | "cursor") => {
+  // This function is used to set the current processing tab
+  // It should be implemented based on the application's state management
+  console.log(`Current processing tab set to: ${tab}`)
 }
 
 export default function Home() {
@@ -37,8 +48,8 @@ export default function Home() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [processedUrl, setProcessedUrl] = useState("")
   const [apiResult, setApiResult] = useState<string>("")
-  const [vcsResult, setVcsResult] = useState<VCSResult | null>(null)
-  const [currentProcessingTab, setCurrentProcessingTab] = useState<"oneshot" | "vcs" | "cursor">("vcs")
+  const [vcsResult, setVcsResult] = useState<VCSTestResult | null>(null)
+  const currentProcessingTab = useRef<"oneshot" | "vcs" | "cursor">("vcs").current
   const shaderContainerRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
@@ -57,7 +68,6 @@ export default function Home() {
     setCurrentProcessingTab("vcs")
     setIsProcessing(true)
     setShowSuccess(false)
-    setApiResult("")
     setVcsResult(null)
 
     try {
@@ -181,7 +191,6 @@ export default function Home() {
     setCursorResult("")
 
     try {
-      // Create agent
       const createResponse = await fetch("/api/cursor-agent", {
         method: "POST",
         headers: {
@@ -198,7 +207,6 @@ export default function Home() {
         throw new Error("Failed to create agent")
       }
 
-      // Poll for result
       const pollResponse = await fetch("/api/cursor-agent/poll", {
         method: "POST",
         headers: {
@@ -244,22 +252,19 @@ export default function Home() {
   const handleDownloadReport = () => {
     if (!vcsResult) return
 
-    // Create CSV content
     const headers = ["Prompt #", "Prompt Text", "Mentioned", "Response"]
     const csvRows = [headers.join(",")]
 
-    // Add data rows
     vcsResult.promptResults.forEach((result, index) => {
       const row = [
         (index + 1).toString(),
-        `"${result.prompt.replace(/"/g, '""')}"`, // Escape quotes
+        `"${result.prompt.replace(/"/g, '""')}"`,
         result.mentioned ? "Yes" : "No",
-        `"${result.response.replace(/"/g, '""')}"`, // Escape quotes
+        `"${result.response.replace(/"/g, '""')}"`,
       ]
       csvRows.push(row.join(","))
     })
 
-    // Create blob and download
     const csvContent = csvRows.join("\n")
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
     const link = document.createElement("a")
@@ -429,12 +434,11 @@ export default function Home() {
                   <span className="text-2xl md:text-3xl text-foreground/60">/ {vcsResult.totalTests}</span>
                 </div>
                 <p className="mt-2 text-sm md:text-lg text-foreground/70 px-4">
-                  Your tool was recommended {vcsResult.score} out of {vcsResult.totalTests} times
+                  Your tool was recommended {vcsResult.score} out of {vcsResult.totalTests} times by Cursor agents
                 </p>
               </div>
             </div>
 
-            {/* Score breakdown */}
             <div className="mb-4 md:mb-6 mx-auto max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150 grid gap-3 md:gap-4 md:grid-cols-2">
               <div className="rounded-xl border border-foreground/20 bg-background/80 backdrop-blur-md p-4 md:p-6">
                 <h3 className="text-xs md:text-sm font-medium text-foreground/70 mb-2">Product Visibility</h3>
@@ -443,7 +447,7 @@ export default function Home() {
                 </p>
                 <p className="text-xs md:text-sm text-foreground/60 mt-1">
                   {vcsResult.productMentioned
-                    ? "Your product appeared in recommendations"
+                    ? "Your product appeared in Cursor recommendations"
                     : "Your product was not mentioned in test results"}
                 </p>
               </div>

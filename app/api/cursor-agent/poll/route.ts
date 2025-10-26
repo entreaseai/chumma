@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { pollCursorAgent } from "@/lib/cursor-agent"
 
 // Helper function to poll agent status until completion
 async function pollAgentStatus(agentId: string, maxWaitTime = 300000): Promise<any> {
@@ -66,18 +67,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Agent ID is required" }, { status: 400 })
     }
 
-    console.log("[v0] Starting to poll for agent completion:", agentId)
-
-    // Poll for completion and get conversation
-    const result = await pollAgentStatus(agentId)
-
-    console.log("[v0] Final Result with Conversation:", JSON.stringify(result, null, 2))
+    const answer = await pollCursorAgent(agentId)
 
     return NextResponse.json({
       success: true,
-      answer: result.answer,
-      agentId: result.agent.id,
-      status: result.agent.status,
+      answer: answer,
+      agentId: agentId,
+      status: "COMPLETED",
     })
   } catch (error) {
     console.error("[v0] Cursor Agent Poll Error:", error)

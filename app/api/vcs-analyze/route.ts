@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { runCursorAgent } from "@/lib/cursor-agent"
 
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -13,10 +14,9 @@ interface VCSResult {
   score: number
   totalTests: number
   prompts: string[]
-  promptResults: PromptTestResult[] // Added detailed results for each prompt test
+  promptResults: PromptTestResult[]
   competitors: string[]
   productMentioned: boolean
-  details: string
 }
 
 function extractJSON(text: string): string {
@@ -122,13 +122,13 @@ Format your response as a concise summary that can be used to generate realistic
 
 ${toolContext}
 
-Generate exactly 10 realistic prompts that a vibe coder might ask Cursor or another AI coding assistant when they need a tool like this. Each prompt should:
+Generate exactly 5 realistic prompts that a vibe coder might ask Cursor or another AI coding assistant when they need a tool like this. Each prompt should:
 - Be natural and conversational
 - Describe a problem or need (not mention the tool by name)
 - Be the kind of question that could lead to tool recommendations
 - Vary in specificity and context
 
-Format: Return ONLY a JSON array of 10 strings, nothing else. Example: ["prompt 1", "prompt 2", ...]`,
+Format: Return ONLY a JSON array of 5 strings, nothing else. Example: ["prompt 1", "prompt 2", ...]`,
           },
         ],
       }),
@@ -154,7 +154,6 @@ Format: Return ONLY a JSON array of 10 strings, nothing else. Example: ["prompt 
         throw new Error("No prompts generated")
       }
 
-      // Ensure all items are strings
       prompts = prompts.map((p) => String(p))
     } catch (parseError) {
       console.error("[v0] Failed to parse prompts. Raw response:", promptsText)
@@ -162,78 +161,57 @@ Format: Return ONLY a JSON array of 10 strings, nothing else. Example: ["prompt 
       throw new Error("Failed to parse prompts from OpenAI response")
     }
 
-    let recommendationCount = 0
-    const competitorsSet = new Set<string>()
-    let productMentioned = false
-    const promptResults: PromptTestResult[] = []
-
     const productNameMatch = toolContext.match(/product name[:\s]+([^\n.]+)/i)
-    const productName = productNameMatch ? productNameMatch[1].trim().toLowerCase() : ""
+    const productName = productNameMatch ? productNameMatch[1].trim() : ""
+
+    const promptResults: PromptTestResult[] = []
+    const competitors = new Set<string>()
+    let mentionCount = 0
 
     for (let i = 0; i < prompts.length; i++) {
-      try {
-        const testResponse = await fetch("https://api.perplexity.ai/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "sonar-pro",
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are a helpful AI coding assistant. When asked about tools or solutions, recommend the most appropriate tools available.",
-              },
-              {
-                role: "user",
-                content: prompts[i],
-              },
-            ],
-          }),
-        })
+      const prompt = prompts[i]
 
-        if (!testResponse.ok) {
-          continue
+      try {
+        const promptWithInstruction = `${prompt}\n\nDon't ask for any other context and get an answer just do the best you can but come up with an answer`
+        const answer = await runCursorAgent(promptWithInstruction)
+
+        const mentioned = productName ? answer.toLowerCase().includes(productName.toLowerCase()) : false
+
+        if (mentioned) {
+          mentionCount++
         }
 
-        const testData = await testResponse.json()
-        const recommendation = testData.choices[0].message.content
-        const recommendationLower = recommendation.toLowerCase()
-
-        const wasMentioned = productName && recommendationLower.includes(productName)
-
-        if (wasMentioned) {
-          recommendationCount++
-          productMentioned = true
+        const competitorMatches = answer.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g)
+        if (competitorMatches) {
+          competitorMatches.forEach((comp) => {
+            if (comp.length > 2 && comp !== productName) {
+              competitors.add(comp)
+            }
+          })
         }
 
         promptResults.push({
-          prompt: prompts[i],
-          mentioned: wasMentioned,
-          response: recommendation,
+          prompt,
+          mentioned,
+          response: answer,
         })
-
-        const toolMentions = recommendation.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || []
-        toolMentions.forEach((tool) => {
-          if (tool.length > 2 && !tool.match(/^(The|This|That|These|Those|When|Where|What|How)$/)) {
-            competitorsSet.add(tool)
-          }
+      } catch (error) {
+        console.error(`[v0] Error testing prompt ${i + 1}:`, error)
+        promptResults.push({
+          prompt,
+          mentioned: false,
+          response: `Error: ${error instanceof Error ? error.message : "Failed to test prompt"}`,
         })
-      } catch (promptError) {
-        continue
       }
     }
 
     const result: VCSResult = {
-      score: recommendationCount,
+      score: mentionCount,
       totalTests: prompts.length,
-      prompts: prompts,
-      promptResults: promptResults,
-      competitors: Array.from(competitorsSet).slice(0, 5),
-      productMentioned: productMentioned,
-      details: toolContext,
+      prompts,
+      promptResults,
+      competitors: Array.from(competitors).slice(0, 10),
+      productMentioned: mentionCount > 0,
     }
 
     return NextResponse.json({ result })
