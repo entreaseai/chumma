@@ -123,18 +123,22 @@ export default function Home() {
             }),
           })
 
-          const contentType = testResponse.headers.get("content-type")
-          if (!contentType || !contentType.includes("application/json")) {
-            console.error(`[v0] Non-JSON response for prompt ${i + 1}`)
-            throw new Error("Invalid response format")
+          // Check if response is OK first
+          if (!testResponse.ok) {
+            console.error(`[v0] API error for prompt ${i + 1}: ${testResponse.status} ${testResponse.statusText}`)
+            throw new Error(`API returned ${testResponse.status}`)
           }
 
+          // Try to get the response text first
+          const responseText = await testResponse.text()
+
+          // Try to parse as JSON
           let testData
           try {
-            testData = await testResponse.json()
+            testData = JSON.parse(responseText)
           } catch (parseError) {
-            console.error(`[v0] JSON parse error for prompt ${i + 1}:`, parseError)
-            throw new Error("Failed to parse response")
+            console.error(`[v0] JSON parse error for prompt ${i + 1}. Response text:`, responseText.substring(0, 200))
+            throw new Error("Invalid JSON response")
           }
 
           if (!testData.success) {
