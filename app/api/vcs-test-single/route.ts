@@ -12,14 +12,18 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[v0] Testing prompt ${index + 1}: ${prompt.substring(0, 50)}...`)
+    console.log(`[v0] Looking for product: "${productName}"`)
 
-    // Add instruction to prompt
-    const promptWithInstruction = `${prompt}\n\nDon't ask for any other context and get an answer just do the best you can but come up with an answer`
+    const promptWithInstruction = `IMPORTANT: Don't ask for any other context, don't say you'll create anything, and don't request more information. Just answer the question directly with your best recommendation based on what you know. Provide a direct, helpful answer.
+
+${prompt}`
 
     // Run Cursor agent
     const answer = await runCursorAgent(promptWithInstruction)
 
-    // Check if product is mentioned using OpenAI
+    console.log(`[v0] Cursor agent response length: ${answer.length} characters`)
+    console.log(`[v0] Cursor agent response preview: ${answer.substring(0, 200)}...`)
+
     let mentioned = false
     const mentionCheckResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -33,30 +37,48 @@ export async function POST(request: NextRequest) {
           {
             role: "system",
             content:
-              "You are an expert at analyzing text to determine if a specific product or tool is mentioned or recommended. Be thorough and look for direct mentions, variations of the name, or clear references to the product.",
+              "You are an expert at analyzing text to determine if a specific product or tool is mentioned or recommended. Be thorough but accurate. You respond with ONLY 'yes' or 'no'.",
           },
           {
             role: "user",
-            content: `Product name to look for: "${productName}"
+            content: `Product/Tool to look for: "${productName}"
 
 Answer to analyze:
+"""
 ${answer}
+"""
 
-Is "${productName}" mentioned, recommended, or clearly referenced in this answer? Consider variations of the name, acronyms, and contextual references.
+Question: Is "${productName}" explicitly mentioned, recommended, suggested, or clearly referenced in this answer? 
 
-Respond with ONLY "yes" or "no", nothing else.`,
+Look for:
+- Direct mentions of the exact product name
+- Variations, abbreviations, or related terms (e.g., "Next" for "Next.js", "Supabase Auth" for "Supabase")
+- Clear recommendations or suggestions to use this product
+- References to this product as a solution
+
+Important: Only respond "yes" if the product is actually mentioned or recommended. Don't respond "yes" just because the answer is related to the same category.
+
+Respond with ONLY "yes" or "no" (lowercase, no punctuation, no explanation).`,
           },
         ],
+        temperature: 0,
+        max_tokens: 10,
       }),
     })
 
     if (mentionCheckResponse.ok) {
       const mentionCheckData = await mentionCheckResponse.json()
       const mentionResult = mentionCheckData.choices[0].message.content.trim().toLowerCase()
-      mentioned = mentionResult === "yes"
+      mentioned = mentionResult.includes("yes")
+      console.log(`[v0] Mention check result: "${mentionResult}" -> ${mentioned}`)
+      console.log(`[v0] Product "${productName}" ${mentioned ? "WAS" : "WAS NOT"} mentioned in the response`)
+    } else {
+      console.error(`[v0] Mention check API failed with status ${mentionCheckResponse.status}`)
+      const errorText = await mentionCheckResponse.text()
+      console.error(`[v0] Mention check error: ${errorText}`)
     }
 
-    console.log(`[v0] Prompt ${index + 1} - Mentioned: ${mentioned}`)
+    console.log(`[v0] Prompt ${index + 1} - Final result: Mentioned = ${mentioned}`)
 
     // Extract competitors
     const competitors: string[] = []

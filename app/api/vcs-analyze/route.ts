@@ -54,6 +54,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Link is required" }, { status: 400 })
     }
 
+    console.log("[v0] Starting VCS analysis for:", link)
+
     const toolAnalysisResponse = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
       headers: {
@@ -92,6 +94,8 @@ Format your response as a concise summary that can be used to generate realistic
     const toolAnalysisData = await toolAnalysisResponse.json()
     const toolContext = toolAnalysisData.choices[0].message.content
 
+    console.log("[v0] Tool analysis completed, extracting product name...")
+
     const productNameResponse = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
       headers: {
@@ -103,16 +107,19 @@ Format your response as a concise summary that can be used to generate realistic
         messages: [
           {
             role: "system",
-            content: "You are an expert at identifying product and tool names from documentation.",
+            content:
+              "You are an expert at identifying product and tool names. You always respond with just the product name, nothing else.",
           },
           {
             role: "user",
-            content: `Based on this documentation link: ${link}
+            content: `Extract the exact product/tool name from this URL: ${link}
 
-And this analysis:
-${toolContext}
+Examples:
+- https://supabase.com/docs -> Supabase
+- https://stripe.com/docs -> Stripe
+- https://nextjs.org/docs -> Next.js
 
-What is the exact product/tool name? Respond with ONLY the product name, nothing else. For example: "Supabase" or "Next.js" or "Stripe"`,
+Respond with ONLY the product name (no quotes, no extra text, no explanation). Just the name.`,
           },
         ],
       }),
@@ -123,9 +130,17 @@ What is the exact product/tool name? Respond with ONLY the product name, nothing
     }
 
     const productNameData = await productNameResponse.json()
-    const productName = productNameData.choices[0].message.content.trim().replace(/[*"']/g, "")
+    const productName = productNameData.choices[0].message.content
+      .trim()
+      .replace(/[*"'`]/g, "")
+      .replace(/^(the|a|an)\s+/i, "")
+      .trim()
 
     console.log("[v0] Extracted product name:", productName)
+
+    if (!productName || productName.length < 2) {
+      throw new Error("Failed to extract valid product name")
+    }
 
     const promptGenerationResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
